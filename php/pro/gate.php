@@ -66,6 +66,7 @@ class gate extends \ccxt\async\gate {
                 'watchOrderBook' => array(
                     'interval' => '100ms',
                     'snapshotDelay' => 10, // how many deltas to cache before fetching a snapshot
+                    'maxRetries' => 3,
                 ),
                 'watchBalance' => array(
                     'settle' => 'usdt', // or btc
@@ -450,7 +451,7 @@ class gate extends \ccxt\async\gate {
             $market = $this->market($symbol);
             $symbol = $market['symbol'];
             $marketId = $market['id'];
-            $interval = $this->timeframes[$timeframe];
+            $interval = $this->safe_string($this->timeframes, $timeframe, $timeframe);
             $messageType = $this->get_type_by_market($market);
             $channel = $messageType . '.candlesticks';
             $messageHash = 'candles:' . $interval . ':' . $market['symbol'];
@@ -879,7 +880,7 @@ class gate extends \ccxt\async\gate {
         }
     }
 
-    public function handle_balance_subscription($client, $message) {
+    public function handle_balance_subscription($client, $message, $subscription = null) {
         $this->balance = array();
     }
 

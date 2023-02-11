@@ -674,26 +674,29 @@ class gate extends Exchange {
                     'CROSS_ACCOUNT_NOT_FOUND' => '\\ccxt\\ExchangeError',
                     'RISK_LIMIT_TOO_LOW' => '\\ccxt\\BadRequest', // array("label":"RISK_LIMIT_TOO_LOW","detail":"limit 1000000")
                 ),
+                'broad' => array(),
             ),
-            'broad' => array(),
         ));
     }
 
     public function fetch_markets($params = array ()) {
         return Async\async(function () use ($params) {
             /**
-             * retrieves data on all markets for gate
+             * retrieves data on all $markets for gate
              * @param {array} $params extra parameters specific to the exchange api endpoint
              * @return {[array]} an array of objects representing market data
              */
             $promises = array(
                 $this->fetch_spot_markets($params),
                 $this->fetch_contract_markets($params),
+                $this->fetch_option_markets($params),
             );
             $promises = Async\await(Promise\all($promises));
             $spotMarkets = $promises[0];
             $contractMarkets = $promises[1];
-            return $this->array_concat($spotMarkets, $contractMarkets);
+            $optionMarkets = $promises[2];
+            $markets = $this->array_concat($spotMarkets, $contractMarkets);
+            return $this->array_concat($markets, $optionMarkets);
         }) ();
     }
 
@@ -2420,7 +2423,7 @@ class gate extends Exchange {
             $price = $this->safe_string($params, 'price');
             $request = array();
             list($request, $params) = $this->prepare_request($market, null, $params);
-            $request['interval'] = $this->timeframes[$timeframe];
+            $request['interval'] = $this->safe_string($this->timeframes, $timeframe, $timeframe);
             $method = 'publicSpotGetCandlesticks';
             $maxLimit = 1000;
             if ($market['contract']) {
@@ -3708,14 +3711,16 @@ class gate extends Exchange {
         $remaining = $this->parse_number(Precise::string_abs($remainingString));
         // handle spot $market buy
         $account = $this->safe_string($order, 'account'); // using this instead of $market $type because of the conflicting ids
-        if (($account === 'spot') && ($type === 'market') && ($side === 'buy')) {
+        if ($account === 'spot') {
             $averageString = $this->safe_string($order, 'avg_deal_price');
             $average = $this->parse_number($averageString);
-            $filled = Precise::string_div($filledString, $averageString);
-            $remaining = Precise::string_div($remainingString, $averageString);
-            $price = null; // arrives as 0
-            $cost = $amount;
-            $amount = Precise::string_div($amount, $averageString);
+            if (($type === 'market') && ($side === 'buy')) {
+                $filled = Precise::string_div($filledString, $averageString);
+                $remaining = Precise::string_div($remainingString, $averageString);
+                $price = null; // arrives as 0
+                $cost = $amount;
+                $amount = Precise::string_div($amount, $averageString);
+            }
         }
         return $this->safe_order(array(
             'id' => $this->safe_string($order, 'id'),
@@ -5071,7 +5076,7 @@ class gate extends Exchange {
             $request = array(
                 'contract' => $market['id'],
                 'settle' => $market['settleId'],
-                'interval' => $this->timeframes[$timeframe],
+                'interval' => $this->safe_string($this->timeframes, $timeframe, $timeframe),
             );
             if ($limit !== null) {
                 $request['limit'] = $limit;

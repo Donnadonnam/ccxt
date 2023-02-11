@@ -683,8 +683,8 @@ class gate(Exchange):
                     'CROSS_ACCOUNT_NOT_FOUND': ExchangeError,
                     'RISK_LIMIT_TOO_LOW': BadRequest,  # {"label":"RISK_LIMIT_TOO_LOW","detail":"limit 1000000"}
                 },
+                'broad': {},
             },
-            'broad': {},
         })
 
     async def fetch_markets(self, params={}):
@@ -696,11 +696,14 @@ class gate(Exchange):
         promises = [
             self.fetch_spot_markets(params),
             self.fetch_contract_markets(params),
+            self.fetch_option_markets(params),
         ]
         promises = await asyncio.gather(*promises)
         spotMarkets = promises[0]
         contractMarkets = promises[1]
-        return self.array_concat(spotMarkets, contractMarkets)
+        optionMarkets = promises[2]
+        markets = self.array_concat(spotMarkets, contractMarkets)
+        return self.array_concat(markets, optionMarkets)
 
     async def fetch_spot_markets(self, params={}):
         marginResponse = await self.publicMarginGetCurrencyPairs(params)
@@ -2301,7 +2304,7 @@ class gate(Exchange):
         price = self.safe_string(params, 'price')
         request = {}
         request, params = self.prepare_request(market, None, params)
-        request['interval'] = self.timeframes[timeframe]
+        request['interval'] = self.safe_string(self.timeframes, timeframe, timeframe)
         method = 'publicSpotGetCandlesticks'
         maxLimit = 1000
         if market['contract']:
@@ -3480,14 +3483,15 @@ class gate(Exchange):
         remaining = self.parse_number(Precise.string_abs(remainingString))
         # handle spot market buy
         account = self.safe_string(order, 'account')  # using self instead of market type because of the conflicting ids
-        if (account == 'spot') and (type == 'market') and (side == 'buy'):
+        if account == 'spot':
             averageString = self.safe_string(order, 'avg_deal_price')
             average = self.parse_number(averageString)
-            filled = Precise.string_div(filledString, averageString)
-            remaining = Precise.string_div(remainingString, averageString)
-            price = None  # arrives as 0
-            cost = amount
-            amount = Precise.string_div(amount, averageString)
+            if (type == 'market') and (side == 'buy'):
+                filled = Precise.string_div(filledString, averageString)
+                remaining = Precise.string_div(remainingString, averageString)
+                price = None  # arrives as 0
+                cost = amount
+                amount = Precise.string_div(amount, averageString)
         return self.safe_order({
             'id': self.safe_string(order, 'id'),
             'clientOrderId': self.safe_string(order, 'text'),
@@ -4747,7 +4751,7 @@ class gate(Exchange):
         request = {
             'contract': market['id'],
             'settle': market['settleId'],
-            'interval': self.timeframes[timeframe],
+            'interval': self.safe_string(self.timeframes, timeframe, timeframe),
         }
         if limit is not None:
             request['limit'] = limit
